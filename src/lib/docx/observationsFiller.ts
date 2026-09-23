@@ -18,14 +18,23 @@ function normalizeTurbineGroupName(name: string): string {
   return name === "Honeycomb Shroud" ? "Shroud Blocks" : name;
 }
 
+/** Brett's own red text in the template marks a value HE still needs to review/correct by
+ *  hand -- a numeric percent ("100%", "75%") or his own "still needs a number" placeholder. Any
+ *  of these left red after our fill pass would be indistinguishable from Brett's own pending
+ *  corrections, so blankifyUnfilledObservations() resets the value itself to a blank "XX%"
+ *  rather than a specific-looking invented number. */
+const PERCENT_PLACEHOLDER_PATTERN = /^\s*(\d+\s*%|Add Applicable\s*%)\s*$/i;
+
 /**
  * Fills the Compressor and Turbine Observations tables' Condition cells from `aggregation`
  * (see observationsAggregator.ts). Deliberately does not touch Combustion, Exhaust, or any
  * Percent-Inspected cell -- see the plan file for why those aren't reliable to auto-fill from
- * this raw data. Leaves every cell it doesn't have data for untouched (the template's own
- * example text stays exactly as-is), and colors filled text blue (0000FF) -- per Adam's
- * convention, every AI-generated value in the report is blue while the template's own
- * original text stays black, so a reviewer can see at a glance what was auto-filled.
+ * this raw data. Leaves every cell it doesn't have data for untouched, and colors filled text
+ * blue (0000FF) -- every AI-generated value in the report is blue, the template's own original
+ * text is black, and red is reserved for Brett's own manual corrections (his existing
+ * convention, which predates this app) -- so blankifyUnfilledObservations() recolors whatever
+ * red text our own fill pass didn't touch to black, so it doesn't look like a pending
+ * correction that isn't actually there.
  */
 export function fillObservations(documentXml: string, aggregation: ObservationsAggregation): FillObservationsResult {
   const xml = documentXml;
@@ -110,11 +119,44 @@ export function fillObservations(documentXml: string, aggregation: ObservationsA
     result = result.slice(0, start) + replacement + result.slice(end);
   }
 
+  result = blankifyUnfilledObservations(result, obsHeading.paragraphStart);
+
   return { documentXml: result, filled, skipped };
 }
 
+/**
+ * Anything still red within the Observations section at this point (after the fills above have
+ * already recolored what they touched to blue) is example text our own pass never reaches --
+ * Combustion/Exhaust entirely, any Percent-Inspected cell, or a Compressor/Turbine row with no
+ * data this inspection. Recolors all of it black (see PERCENT_PLACEHOLDER_PATTERN's doc comment
+ * for why red is reserved for Brett's own manual corrections), and resets a Percent-Inspected
+ * placeholder's specific-looking value to a blank "XX%".
+ */
+function blankifyUnfilledObservations(documentXml: string, obsHeadingStart: number): string {
+  const photosHeading = findHeadingParagraph(documentXml, "Heading1", "Photos", obsHeadingStart);
+  const regionEnd = photosHeading ? photosHeading.paragraphStart : documentXml.length;
+
+  const before = documentXml.slice(0, obsHeadingStart);
+  let region = documentXml.slice(obsHeadingStart, regionEnd);
+  const after = documentXml.slice(regionEnd);
+
+  // Blank out a red run's placeholder percent value before the color itself gets normalized
+  // below (the pattern only needs to match runs that are still red -- our own blue fills are
+  // never touched here).
+  region = region.replace(
+    /(<w:r(?:\s[^>]*)?><w:rPr>(?:(?!<\/w:rPr>)[\s\S])*?<w:color w:val="FF0000"\/>(?:(?!<\/w:r>)[\s\S])*?<w:t[^>]*>)([^<]*)(<\/w:t>)/g,
+    (match, open, text, close) => (PERCENT_PLACEHOLDER_PATTERN.test(text) ? `${open}XX%${close}` : match),
+  );
+
+  // Every remaining FF0000 in this region -- run text or an empty paragraph mark's own leftover
+  // formatting -- is unfilled example text, not a real correction, so it goes black.
+  region = region.replace(/FF0000/g, "000000");
+
+  return before + region + after;
+}
+
 /** Replaces a cell's paragraph content (from its first <w:p> to its last </w:p>) with a single
- *  fresh paragraph carrying `newText` in red, reusing the original paragraph's properties
+ *  fresh paragraph carrying `newText` in blue, reusing the original paragraph's properties
  *  (alignment/spacing) and font size where present. */
 function buildCellReplacement(xml: string, cell: { start: number; end: number }, newText: string): { start: number; end: number; replacement: string } {
   const cellXml = xml.slice(cell.start, cell.end);
