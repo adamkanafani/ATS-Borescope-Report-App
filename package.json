@@ -1,0 +1,29 @@
+{
+  "name": "ats-borescope-report-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test:raw-parser": "ts-node --transpile-only --project tsconfig.scripts.json scripts/test-raw-parser.ts",
+    "test:assemble": "ts-node --transpile-only --project tsconfig.scripts.json scripts/test-assemble.ts"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.8",
+    "jszip": "^3.10.1",
+    "next": "16.3.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5"
+  }
+}
