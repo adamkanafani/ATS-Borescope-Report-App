@@ -18,11 +18,10 @@ function normalizeTurbineGroupName(name: string): string {
   return name === "Honeycomb Shroud" ? "Shroud Blocks" : name;
 }
 
-/** Brett's own red text in the template marks a value HE still needs to review/correct by
- *  hand -- a numeric percent ("100%", "75%") or his own "still needs a number" placeholder. Any
- *  of these left red after our fill pass would be indistinguishable from Brett's own pending
- *  corrections, so blankifyUnfilledObservations() resets the value itself to a blank "XX%"
- *  rather than a specific-looking invented number. */
+/** A Percent-Inspected cell's placeholder value -- a numeric percent ("100%", "75%") or Brett's
+ *  own "still needs a number" placeholder. resetPercentPlaceholders() rewrites any of these
+ *  still red at that point to a blank "XX%", rather than leaving one of Brett's specific-looking
+ *  example numbers in a generated report. */
 const PERCENT_PLACEHOLDER_PATTERN = /^\s*(\d+\s*%|Add Applicable\s*%)\s*$/i;
 
 /**
@@ -32,9 +31,9 @@ const PERCENT_PLACEHOLDER_PATTERN = /^\s*(\d+\s*%|Add Applicable\s*%)\s*$/i;
  * this raw data. Leaves every cell it doesn't have data for untouched, and colors filled text
  * blue (0000FF) -- every AI-generated value in the report is blue, the template's own original
  * text is black, and red is reserved for Brett's own manual corrections (his existing
- * convention, which predates this app) -- so blankifyUnfilledObservations() recolors whatever
- * red text our own fill pass didn't touch to black, so it doesn't look like a pending
- * correction that isn't actually there.
+ * convention, which predates this app). This only resets Percent-Inspected placeholders to
+ * "XX%" -- see recolorRemainingRedToBlack() (called by the caller, over the whole document) for
+ * turning the remaining red itself black.
  */
 export function fillObservations(documentXml: string, aggregation: ObservationsAggregation): FillObservationsResult {
   const xml = documentXml;
@@ -119,20 +118,20 @@ export function fillObservations(documentXml: string, aggregation: ObservationsA
     result = result.slice(0, start) + replacement + result.slice(end);
   }
 
-  result = blankifyUnfilledObservations(result, obsHeading.paragraphStart);
+  result = resetPercentPlaceholders(result, obsHeading.paragraphStart);
 
   return { documentXml: result, filled, skipped };
 }
 
 /**
- * Anything still red within the Observations section at this point (after the fills above have
- * already recolored what they touched to blue) is example text our own pass never reaches --
- * Combustion/Exhaust entirely, any Percent-Inspected cell, or a Compressor/Turbine row with no
- * data this inspection. Recolors all of it black (see PERCENT_PLACEHOLDER_PATTERN's doc comment
- * for why red is reserved for Brett's own manual corrections), and resets a Percent-Inspected
- * placeholder's specific-looking value to a blank "XX%".
+ * Resets a Percent-Inspected cell's specific-looking placeholder value ("100%", "75%", "Add
+ * Applicable %") to a blank "XX%", within the Observations section only -- scoped there rather
+ * than run over the whole document since "XX%" is specifically what a Percent-Inspected cell
+ * should show, not a general-purpose substitution. Only touches cells still red at this point
+ * (our own fills above are already blue), so nothing this pass fills gets touched. The actual
+ * red-to-black recolor happens separately, document-wide -- see recolorRemainingRedToBlack().
  */
-function blankifyUnfilledObservations(documentXml: string, obsHeadingStart: number): string {
+function resetPercentPlaceholders(documentXml: string, obsHeadingStart: number): string {
   const photosHeading = findHeadingParagraph(documentXml, "Heading1", "Photos", obsHeadingStart);
   const regionEnd = photosHeading ? photosHeading.paragraphStart : documentXml.length;
 
@@ -140,19 +139,25 @@ function blankifyUnfilledObservations(documentXml: string, obsHeadingStart: numb
   let region = documentXml.slice(obsHeadingStart, regionEnd);
   const after = documentXml.slice(regionEnd);
 
-  // Blank out a red run's placeholder percent value before the color itself gets normalized
-  // below (the pattern only needs to match runs that are still red -- our own blue fills are
-  // never touched here).
   region = region.replace(
     /(<w:r(?:\s[^>]*)?><w:rPr>(?:(?!<\/w:rPr>)[\s\S])*?<w:color w:val="FF0000"\/>(?:(?!<\/w:r>)[\s\S])*?<w:t[^>]*>)([^<]*)(<\/w:t>)/g,
     (match, open, text, close) => (PERCENT_PLACEHOLDER_PATTERN.test(text) ? `${open}XX%${close}` : match),
   );
 
-  // Every remaining FF0000 in this region -- run text or an empty paragraph mark's own leftover
-  // formatting -- is unfilled example text, not a real correction, so it goes black.
-  region = region.replace(/FF0000/g, "000000");
-
   return before + region + after;
+}
+
+/**
+ * Recolors every remaining instance of Brett's red "needs review" convention to black, across
+ * the WHOLE document -- not just Observations. Adam's request: red is reserved for Brett's own
+ * manual corrections when he reviews a generated report, so anything the template itself always
+ * shipped in red (TOC entries, the Overall Assessment summary table, Inspection Details/TIL
+ * tables, boilerplate notes, an unfilled Observations cell) needs to read as ordinary template
+ * text -- black -- instead. Safe as a blanket replace because this app never writes FF0000
+ * itself (only 0000FF, for real auto-filled values), so nothing generated gets touched.
+ */
+export function recolorRemainingRedToBlack(documentXml: string): string {
+  return documentXml.replace(/FF0000/g, "000000");
 }
 
 /** Replaces a cell's paragraph content (from its first <w:p> to its last </w:p>) with a single

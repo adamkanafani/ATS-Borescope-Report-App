@@ -6,7 +6,7 @@ import { detectTemplateFamily, resolveClassify, resolvePhotosSubsections, type T
 import { buildPhotoBlockXml } from "./photoBlockBuilder";
 import { findHeadingParagraph } from "./xmlTextUtils";
 import { aggregateObservations } from "./observationsAggregator";
-import { fillObservations } from "./observationsFiller";
+import { fillObservations, recolorRemainingRedToBlack } from "./observationsFiller";
 import { insertFrontMatterPhotos } from "./frontMatterPhotos";
 import { removeExcludedSections } from "./sectionExclusion";
 
@@ -142,6 +142,12 @@ export function assembleReport(template: LoadedDocx, units: RawPhotoUnit[], opti
     operationalDataImage: options.operationalDataImage,
     dataPlateImages: options.dataPlateImages,
   });
+
+  // Whole-document pass, last: anything the template shipped in Brett's red "needs review"
+  // convention (TOC, Overall Assessment, Inspection Details/TIL tables, boilerplate notes, plus
+  // whatever fillObservations() didn't reach) reads as ordinary black template text instead --
+  // red stays reserved for Brett's own manual corrections when he reviews a generated report.
+  template.documentXml = recolorRemainingRedToBlack(template.documentXml);
 
   return {
     documentXml: template.documentXml,
