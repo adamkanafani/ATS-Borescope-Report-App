@@ -53,14 +53,33 @@ function FolderIcon() {
   );
 }
 
+/* Trash bin glyph, shown on the sidebar's Trash tab -- same reasoning as FolderIcon above. */
+function TrashIcon() {
+  return (
+    <svg width="14" height="16" viewBox="0 0 14 16" fill="none" aria-hidden="true">
+      <path
+        d="M1 3.5H13M5 3.5V1.8C5 1.36 5.36 1 5.8 1H8.2C8.64 1 9 1.36 9 1.8V3.5M2.5 3.5L3.1 14.2C3.13 14.65 3.5 15 3.95 15H10.05C10.5 15 10.87 14.65 10.9 14.2L11.5 3.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export default function Home() {
   const [rawPath, setRawPath] = useState<string | null>(null);
   const [templatePath, setTemplatePath] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanResponse | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
-  const [selectedSection, setSelectedSection] = useState<PhotosSection | "Unassigned" | "Manual Photos">("Compressor Section");
+  const [selectedSection, setSelectedSection] = useState<PhotosSection | "Unassigned" | "Manual Photos" | "Trash">("Compressor Section");
   const [overrides, setOverrides] = useState<Record<number, PhotosSection | null>>({});
+  // Trashing a unit never touches `overrides` -- it's tracked separately so recovering it just
+  // means removing it from this set, and it goes right back to whatever section (classifier
+  // default or a prior manual reassignment) it already had.
+  const [deletedIndices, setDeletedIndices] = useState<Set<number>>(new Set());
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [operationalDataFiles, setOperationalDataFiles] = useState<File[]>([]);
@@ -79,6 +98,7 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || "Scan failed");
       setScan(data);
       setOverrides({});
+      setDeletedIndices(new Set());
     } catch (err) {
       setScanError(err instanceof Error ? err.message : "Scan failed");
     } finally {
@@ -92,6 +112,7 @@ export default function Home() {
     setScan(null);
     setScanError(null);
     setOverrides({});
+    setDeletedIndices(new Set());
     setOperationalDataFiles([]);
     setDataPlateFiles([]);
     setSelectedSection("Compressor Section");
@@ -102,9 +123,15 @@ export default function Home() {
     setGenerating(true);
     setGenerateError(null);
     try {
+      // Trashed units are excluded the same way "Leave excluded" is (an explicit null override)
+      // -- computed here rather than stored in `overrides` itself, so recovering a trashed unit
+      // before generating restores whatever section it actually had.
+      const overridesWithTrash: Record<number, PhotosSection | null> = { ...overrides };
+      for (const index of deletedIndices) overridesWithTrash[index] = null;
+
       const formData = new FormData();
       formData.set("sessionId", scan.sessionId);
-      formData.set("overrides", JSON.stringify(overrides));
+      formData.set("overrides", JSON.stringify(overridesWithTrash));
       formData.set("excludedSections", JSON.stringify([...excludedSections]));
       if (operationalDataFiles[0]) formData.set("operationalDataPhoto", operationalDataFiles[0]);
       for (const file of dataPlateFiles) formData.append("dataPlatePhoto", file);
@@ -185,6 +212,15 @@ export default function Home() {
       onSelectSection={setSelectedSection}
       overrides={overrides}
       onOverride={(index, section) => setOverrides((prev) => ({ ...prev, [index]: section }))}
+      deletedIndices={deletedIndices}
+      onDelete={(index) => setDeletedIndices((prev) => new Set(prev).add(index))}
+      onRecover={(index) =>
+        setDeletedIndices((prev) => {
+          const next = new Set(prev);
+          next.delete(index);
+          return next;
+        })
+      }
       generating={generating}
       generateError={generateError}
       onGenerate={generateReport}
@@ -288,6 +324,9 @@ function ReviewScreen({
   onSelectSection,
   overrides,
   onOverride,
+  deletedIndices,
+  onDelete,
+  onRecover,
   generating,
   generateError,
   onGenerate,
@@ -299,10 +338,13 @@ function ReviewScreen({
 }: {
   rawPath: string;
   scan: ScanResponse;
-  selectedSection: PhotosSection | "Unassigned" | "Manual Photos";
-  onSelectSection: (s: PhotosSection | "Unassigned" | "Manual Photos") => void;
+  selectedSection: PhotosSection | "Unassigned" | "Manual Photos" | "Trash";
+  onSelectSection: (s: PhotosSection | "Unassigned" | "Manual Photos" | "Trash") => void;
   overrides: Record<number, PhotosSection | null>;
   onOverride: (index: number, section: PhotosSection | null) => void;
+  deletedIndices: Set<number>;
+  onDelete: (index: number) => void;
+  onRecover: (index: number) => void;
   generating: boolean;
   generateError: string | null;
   onGenerate: (excludedSections: Set<PhotosSection>) => void;
@@ -317,14 +359,17 @@ function ReviewScreen({
     const counts = Object.fromEntries(scan.photosSubsections.map((name) => [name, 0])) as Record<PhotosSection, number>;
     let unassigned = 0;
     for (const unit of scan.units) {
+      if (deletedIndices.has(unit.index)) continue;
       const section = effectiveSection(unit, overrides);
       if (section) counts[section]++;
       else unassigned++;
     }
     return { counts, unassigned };
-  }, [scan, overrides]);
+  }, [scan, overrides, deletedIndices]);
 
   const visibleUnits = scan.units.filter((unit) => {
+    if (selectedSection === "Trash") return deletedIndices.has(unit.index);
+    if (deletedIndices.has(unit.index)) return false;
     const section = effectiveSection(unit, overrides);
     return selectedSection === "Unassigned" ? section === null : section === selectedSection;
   });
@@ -376,6 +421,18 @@ function ReviewScreen({
                 {live.unassigned} photo{live.unassigned === 1 ? "" : "s"}
               </div>
             </button>
+            <button
+              className={`section-item ${selectedSection === "Trash" ? "active" : ""}`}
+              onClick={() => onSelectSection("Trash")}
+            >
+              <div className="title-row">
+                <span>Trash</span>
+                <TrashIcon />
+              </div>
+              <div className="confidence-tag">
+                {deletedIndices.size} photo{deletedIndices.size === 1 ? "" : "s"}
+              </div>
+            </button>
           </div>
         </nav>
         <main className="main-panel">
@@ -395,7 +452,12 @@ function ReviewScreen({
           ) : (
             <>
               <h2 style={{ marginBottom: 8 }}>{selectedSection}</h2>
-              {selectedSection === "Unassigned" && live.unassigned > 0 ? (
+              {selectedSection === "Trash" ? (
+                <p className="section-reason">
+                  Deleted photos land here instead of being removed outright -- they&apos;re left out of the
+                  generated report either way, but you can still recover one back to wherever it was before.
+                </p>
+              ) : selectedSection === "Unassigned" && live.unassigned > 0 ? (
                 <p className="section-reason">
                   The classifier couldn&apos;t place these by component name. Pick a section for each one below, or
                   leave excluded to omit it from the generated report.
@@ -434,18 +496,35 @@ function ReviewScreen({
                         )}
                         <div className="unit-row-observation">{unit.observation}</div>
                         {unit.comments && <div className="unit-row-comments">{unit.comments}</div>}
-                        <select
-                          value={overrides[unit.index] ?? unit.section ?? ""}
-                          onChange={(e) => onOverride(unit.index, (e.target.value as PhotosSection) || null)}
-                        >
-                          <option value="">Leave excluded</option>
-                          {scan.photosSubsections.map((name) => (
-                            <option key={name} value={name}>
-                              {name}
-                            </option>
-                          ))}
-                        </select>
+                        {selectedSection === "Trash" ? (
+                          <button type="button" className="secondary unit-row-recover" onClick={() => onRecover(unit.index)}>
+                            Recover
+                          </button>
+                        ) : (
+                          <select
+                            value={overrides[unit.index] ?? unit.section ?? ""}
+                            onChange={(e) => onOverride(unit.index, (e.target.value as PhotosSection) || null)}
+                          >
+                            <option value="">Leave excluded</option>
+                            {scan.photosSubsections.map((name) => (
+                              <option key={name} value={name}>
+                                {name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                       </div>
+                      {selectedSection !== "Trash" && (
+                        <button
+                          type="button"
+                          className="unit-row-delete"
+                          onClick={() => onDelete(unit.index)}
+                          title="Delete this photo (moves it to Trash)"
+                          aria-label="Delete this photo"
+                        >
+                          ×
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>

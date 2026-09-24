@@ -30,14 +30,14 @@ body {
   position: relative;
 }
 
-/* Dot-grid texture: a white-to-red gradient masked into a repeating dot pattern, so each
-   dot's color is really just "whatever the gradient is at that point on the page" rather than
-   a gradient baked into one dot. */
+/* Dot-grid texture: a white-to-red-to-black gradient masked into a repeating dot pattern, so
+   each dot's color is really just "whatever the gradient is at that point on the page" rather
+   than a gradient baked into one dot. */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
-  background-image: linear-gradient(135deg, #ffffff 0%, #a4232b 100%);
+  background-image: linear-gradient(135deg, #ffffff 0%, #a4232b 50%, #000000 100%);
   -webkit-mask-image: radial-gradient(circle, #000 22%, transparent 23%);
   mask-image: radial-gradient(circle, #000 22%, transparent 23%);
   -webkit-mask-size: 10px 10px;
@@ -133,6 +133,7 @@ footer.app-header {
   border-bottom: none;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
 }
 
 .app-header .job-path {
@@ -146,12 +147,44 @@ footer.app-header {
   white-space: nowrap;
 }
 
-/* Top header bar: solid black instead of the frosted-glass look. */
+/* Top header bar: solid black instead of the frosted-glass look, with the same dot-grid
+   texture as the file-picker screens painted on its own (see the shared ::before rule below)
+   -- not body::before/::after showing through, which would also expose the fixed logo
+   wordmark bleeding into the bar. */
 header.app-header {
   background: #0d0d0d;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Self-contained dot-grid texture for the header/footer bars -- same recipe as body::before,
+   but scoped to each bar's own box so only the dots show, never the logo wordmark. */
+header.app-header::before,
+footer.app-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(135deg, #ffffff 0%, #a4232b 50%, #000000 100%);
+  -webkit-mask-image: radial-gradient(circle, #000 22%, transparent 23%);
+  mask-image: radial-gradient(circle, #000 22%, transparent 23%);
+  -webkit-mask-size: 10px 10px;
+  mask-size: 10px 10px;
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* The dot texture above is an absolutely-positioned pseudo-element, which paints after
+   ordinary in-flow children regardless of DOM order -- without this, it sits on top of the
+   header/footer's own text and buttons instead of behind them. */
+header.app-header > *,
+footer.app-header > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* Drop zones themselves render in the white main-panel (like every other tab's content), so
@@ -444,11 +477,10 @@ button:disabled {
 }
 
 button.generate-report {
-  background-color: #ffffff;
-  background-image: radial-gradient(circle, #e8bcbe 28%, transparent 29%);
-  background-size: 9px 9px;
-  border-color: #a4232b;
-  color: #0d0d0d;
+  background-color: #2e9d4f;
+  background-image: none;
+  border-color: #2e9d4f;
+  color: #ffffff;
   font-size: 18px;
   padding: 12px 24px;
   margin-left: auto;
@@ -539,6 +571,37 @@ button.generate-report:active:not(:disabled) {
 .unit-row select {
   margin-top: 8px;
   display: block;
+}
+
+/* Small round "x" on every normal unit row -- sends the photo to the Trash tab instead of
+   deleting it outright, so an accidental click is always recoverable. */
+.unit-row-delete {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid #a4232b;
+  background: #ffffff;
+  color: #a4232b;
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+}
+
+.unit-row-delete:hover:not(:disabled) {
+  background: #a4232b;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+/* Trash tab rows: no reassignment dropdown (it's not in the report either way), just a way
+   back out. */
+.unit-row-recover {
+  margin-top: 8px;
 }
 
 .folder-picker {
