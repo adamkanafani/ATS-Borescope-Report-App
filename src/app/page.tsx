@@ -177,6 +177,7 @@ export default function Home() {
   if (!templatePath) {
     return (
       <TemplateStep
+        rawPath={rawPath}
         onChosen={(p) => {
           setTemplatePath(p);
           runScan(rawPath, p);
@@ -610,27 +611,58 @@ interface TemplateOption {
   path: string;
 }
 
-/** The template-picker step: a quick-select list of the blank templates found in the project's
- *  reference/ folder (fetched from /api/templates, which already excludes finished sample
+/** Raw MDI exports and ATS's own templates both name themselves "{UnitType}_Full_..." /
+ *  "{UnitType} Borescope Cover Page ...", so the raw file's own filename is enough to guess which
+ *  unit type it's for -- e.g. "7EA_Full_022825-Batavia.docx" -> "7EA". Used to narrow the
+ *  template list (see TemplateStep) instead of showing all ~35 templates for every unit/job type
+ *  ATS does, most of which are irrelevant to whatever raw file was just picked. */
+function deriveUnitTypeFromRawFilename(rawPath: string | null): string | null {
+  if (!rawPath) return null;
+  const base = rawPath.split(/[\\/]/).pop() ?? "";
+  const match = /^([A-Za-z0-9.]+)_Full(?:_|\.|$)/i.exec(base);
+  return match ? match[1] : null;
+}
+
+interface TemplatesResponse {
+  templates: TemplateOption[];
+  fullList: TemplateOption[];
+  unit: string | null;
+  matchedCount: number;
+  error?: string;
+}
+
+/** The template-picker step: a quick-select list of the blank templates found in ATS's shared
+ *  template library (fetched from /api/templates, which already excludes finished sample
  *  reports), so picking the right file doesn't mean browsing folders and risking a finished
- *  report by mistake. Falls back to the plain folder browser for anything not in that list. */
-function TemplateStep({ onChosen, onBack }: { onChosen: (path: string) => void; onBack: () => void }) {
-  const [templates, setTemplates] = useState<TemplateOption[] | null>(null);
+ *  report by mistake. Narrowed further to the raw file's own unit type and to templates this
+ *  app's assembler actually recognizes (see /api/templates), with an escape hatch back to the
+ *  full library since that's a heuristic, not a guarantee. Falls back to the plain folder browser
+ *  for anything not in either list. */
+function TemplateStep({ rawPath, onChosen, onBack }: { rawPath: string | null; onChosen: (path: string) => void; onBack: () => void }) {
+  const unitType = useMemo(() => deriveUnitTypeFromRawFilename(rawPath), [rawPath]);
+  const [result, setResult] = useState<TemplatesResponse | null>(null);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
   const [browsing, setBrowsing] = useState(false);
   // Same as Home's rawBrowseDir -- remembers where "Browse for a different file..." was left,
   // so toggling back to the curated list and back to browsing again resumes there.
   const [browseDir, setBrowseDir] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/templates")
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setResult(null);
+    setShowAll(false);
+    const qs = unitType ? `?unit=${encodeURIComponent(unitType)}` : "";
+    fetch(`/api/templates${qs}`)
       .then((res) => res.json())
-      .then((json: { templates: TemplateOption[]; error?: string }) => {
-        setTemplates(json.templates);
+      .then((json: TemplatesResponse) => {
+        setResult(json);
         if (json.error) setTemplatesError(json.error);
       })
       .catch((err) => setTemplatesError(err instanceof Error ? err.message : "Failed to load templates"));
-  }, []);
+  }, [unitType]);
+
+  const templates = result ? (showAll || !unitType ? result.fullList : result.templates) : null;
 
   // Same "grab the one obvious file" shortcut as the raw MDI step's FilePicker (see
   // enableUseThisFolder there) -- reuses the curated list already fetched above instead of a
@@ -675,11 +707,31 @@ function TemplateStep({ onChosen, onBack }: { onChosen: (path: string) => void; 
           {templates && <button onClick={useThisFolder}>Use this folder</button>}
         </div>
         {templatesError && <p className="folder-picker-error">{templatesError}</p>}
+        {result && unitType && !showAll && (
+          <p className="folder-picker-subtitle">
+            {result.templates.length > 0
+              ? `Showing "${unitType}" templates this app can auto-fill.`
+              : result.matchedCount > 0
+                ? `Found "${unitType}" template(s), but none are ones this app knows how to fill in yet.`
+                : `No templates matching unit type "${unitType}" were found.`}{" "}
+            <button className="secondary" onClick={() => setShowAll(true)} style={{ padding: "2px 10px", fontSize: 12 }}>
+              Show all templates
+            </button>
+          </p>
+        )}
+        {result && unitType && showAll && (
+          <p className="folder-picker-subtitle">
+            Showing every template in the library.{" "}
+            <button className="secondary" onClick={() => setShowAll(false)} style={{ padding: "2px 10px", fontSize: 12 }}>
+              Show only &quot;{unitType}&quot; templates
+            </button>
+          </p>
+        )}
         {templates === null ? (
           <div className="folder-list-loading">Loading...</div>
         ) : (
           <div className="folder-list folder-list-enter">
-            {templates.length === 0 && <div className="folder-list-empty">No templates found in reference/.</div>}
+            {templates.length === 0 && <div className="folder-list-empty">No templates found.</div>}
             {templates.map((t) => (
               <button key={t.path} onClick={() => onChosen(t.path)}>
                 📄 {t.name}
