@@ -462,11 +462,6 @@ function ReviewScreen({
                   The classifier couldn&apos;t place these by component name. Pick a section for each one below, or
                   leave excluded to omit it from the generated report.
                 </p>
-              ) : visibleUnits.length > 0 ? (
-                <p className="section-reason">
-                  If any of these were placed in the wrong section, reassign or exclude it below -- it&apos;ll move
-                  immediately.
-                </p>
               ) : null}
               {visibleUnits.length === 0 ? (
                 <p>No photos here.</p>
