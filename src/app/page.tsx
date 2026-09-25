@@ -164,6 +164,7 @@ export default function Home() {
         instructions="Pick the .docx generated directly by the borescope for this inspection."
         extensions="docx"
         onChosen={setRawPath}
+        enableUseThisFolder
       />
     );
   }
@@ -674,12 +675,17 @@ function FilePicker({
   extensions,
   onChosen,
   onBack,
+  enableUseThisFolder,
 }: {
   title: string;
   instructions: string;
   extensions: string;
   onChosen: (path: string) => void;
   onBack?: () => void;
+  /** Shows a "Use this folder" shortcut (mirroring Tech-Rep-Report-App's job-folder picker) that
+   *  grabs the current folder's one matching file directly, for the common case of a folder that
+   *  already contains exactly the file being looked for -- skipping the extra click on it. */
+  enableUseThisFolder?: boolean;
 }) {
   // Directory-visit history (like a browser's back/forward), separate from `data.parent`
   // ("Up one level", which walks toward the filesystem root, not visit order).
@@ -726,6 +732,17 @@ function FilePicker({
 
   const joinPath = (base: string, name: string) => (base.endsWith("\\") ? `${base}${name}` : `${base}\\${name}`);
 
+  function useThisFolder() {
+    if (!data?.dir) return;
+    if (data.files.length === 1) {
+      onChosen(joinPath(data.dir, data.files[0]));
+    } else if (data.files.length === 0) {
+      setError(`No .${extensions} file found in this folder.`);
+    } else {
+      setError(`This folder has more than one .${extensions} file -- pick one below.`);
+    }
+  }
+
   return (
     <div className="folder-picker">
       <div className="folder-picker-card">
@@ -762,6 +779,9 @@ function FilePicker({
             <button className="secondary" onClick={() => navigateTo(data.parent)}>
               Up one level
             </button>
+          )}
+          {enableUseThisFolder && data && !data.isDriveList && data.dir && (
+            <button onClick={useThisFolder}>Use this folder</button>
           )}
         </div>
         {error && <p className="folder-picker-error">{error}</p>}
