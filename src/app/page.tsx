@@ -633,20 +633,6 @@ function TemplateStep({ rawPath, onChosen, onBack }: { rawPath: string | null; o
 
   const templates = result ? (showAll || !unitType ? result.fullList : result.templates) : null;
 
-  // Same "grab the one obvious file" shortcut as the raw MDI step's FilePicker (see
-  // enableUseThisFolder there) -- reuses the curated list already fetched above instead of a
-  // second /api/browse call, since it's the same folder (TEMPLATES_DIR).
-  function useThisFolder() {
-    if (!templates) return;
-    if (templates.length === 1) {
-      onChosen(templates[0].path);
-    } else if (templates.length === 0) {
-      setTemplatesError("No templates found in this folder.");
-    } else {
-      setTemplatesError("This folder has more than one template -- pick one below.");
-    }
-  }
-
   if (browsing) {
     return (
       <FilePicker
@@ -655,7 +641,6 @@ function TemplateStep({ rawPath, onChosen, onBack }: { rawPath: string | null; o
         extensions="docx"
         onChosen={onChosen}
         onBack={() => setBrowsing(false)}
-        enableUseThisFolder
         initialDir={browseDir}
         onDirChange={setBrowseDir}
       />
@@ -673,7 +658,6 @@ function TemplateStep({ rawPath, onChosen, onBack }: { rawPath: string | null; o
           <button className="secondary" onClick={onBack}>
             Back
           </button>
-          {templates && <button onClick={useThisFolder}>Use this folder</button>}
         </div>
         {templatesError && <p className="folder-picker-error">{templatesError}</p>}
         {result && unitType && !showAll && (
