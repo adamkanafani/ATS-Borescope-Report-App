@@ -70,6 +70,9 @@ function TrashIcon() {
 
 export default function Home() {
   const [rawPath, setRawPath] = useState<string | null>(null);
+  // Remembers where the raw-file picker was last browsing, so backing out of a later step (which
+  // unmounts it) reopens it there instead of always restarting at the home directory.
+  const [rawBrowseDir, setRawBrowseDir] = useState<string | null>(null);
   const [templatePath, setTemplatePath] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanResponse | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -165,6 +168,8 @@ export default function Home() {
         extensions="docx"
         onChosen={setRawPath}
         enableUseThisFolder
+        initialDir={rawBrowseDir}
+        onDirChange={setRawBrowseDir}
       />
     );
   }
@@ -613,6 +618,9 @@ function TemplateStep({ onChosen, onBack }: { onChosen: (path: string) => void; 
   const [templates, setTemplates] = useState<TemplateOption[] | null>(null);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
   const [browsing, setBrowsing] = useState(false);
+  // Same as Home's rawBrowseDir -- remembers where "Browse for a different file..." was left,
+  // so toggling back to the curated list and back to browsing again resumes there.
+  const [browseDir, setBrowseDir] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/templates")
@@ -632,6 +640,9 @@ function TemplateStep({ onChosen, onBack }: { onChosen: (path: string) => void; 
         extensions="docx"
         onChosen={onChosen}
         onBack={() => setBrowsing(false)}
+        enableUseThisFolder
+        initialDir={browseDir}
+        onDirChange={setBrowseDir}
       />
     );
   }
@@ -676,6 +687,8 @@ function FilePicker({
   onChosen,
   onBack,
   enableUseThisFolder,
+  initialDir,
+  onDirChange,
 }: {
   title: string;
   instructions: string;
@@ -686,10 +699,17 @@ function FilePicker({
    *  grabs the current folder's one matching file directly, for the common case of a folder that
    *  already contains exactly the file being looked for -- skipping the extra click on it. */
   enableUseThisFolder?: boolean;
+  /** Where to start browsing -- lets a caller resume at wherever the user last was instead of
+   *  always restarting at the home directory (see onDirChange). */
+  initialDir?: string | null;
+  /** Fired whenever the browsed directory changes, so a caller can remember it (in state that
+   *  outlives this component -- e.g. across a "Back" that unmounts this picker) and hand it back
+   *  as `initialDir` next time, instead of the picker always reopening at the home directory. */
+  onDirChange?: (dir: string | null) => void;
 }) {
   // Directory-visit history (like a browser's back/forward), separate from `data.parent`
   // ("Up one level", which walks toward the filesystem root, not visit order).
-  const [history, setHistory] = useState<(string | null)[]>([null]);
+  const [history, setHistory] = useState<(string | null)[]>([initialDir ?? null]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const dir = history[historyIndex];
   const [data, setData] = useState<BrowseResponse | null>(null);
@@ -701,6 +721,11 @@ function FilePicker({
     setHistory([...truncated, next]);
     setHistoryIndex(truncated.length);
   }
+
+  useEffect(() => {
+    onDirChange?.(dir);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dir]);
 
   useEffect(() => {
     let cancelled = false;
