@@ -30,10 +30,11 @@ const PERCENT_PLACEHOLDER_PATTERN = /^\s*(\d+\s*%|Add Applicable\s*%)\s*$/i;
  * Percent-Inspected cell -- see the plan file for why those aren't reliable to auto-fill from
  * this raw data. Leaves every cell it doesn't have data for untouched, and colors filled text
  * blue (0000FF) -- every AI-generated value in the report is blue, the template's own original
- * text is black, and red is reserved for Brett's own manual corrections (his existing
- * convention, which predates this app). This only resets Percent-Inspected placeholders to
- * "XX%" -- see recolorRemainingRedToBlack() (called by the caller, over the whole document) for
- * turning the remaining red itself black.
+ * text is black, and red marks a field the tech rep still needs to fill in or review themselves
+ * (Brett's own existing convention, which predates this app and is left untouched everywhere
+ * this app doesn't have real data to fill in). This only resets Percent-Inspected placeholders
+ * to "XX%" so a generated report doesn't ship one of Brett's specific-looking example numbers --
+ * the cell stays red either way.
  */
 export function fillObservations(documentXml: string, aggregation: ObservationsAggregation): FillObservationsResult {
   const xml = documentXml;
@@ -128,8 +129,9 @@ export function fillObservations(documentXml: string, aggregation: ObservationsA
  * Applicable %") to a blank "XX%", within the Observations section only -- scoped there rather
  * than run over the whole document since "XX%" is specifically what a Percent-Inspected cell
  * should show, not a general-purpose substitution. Only touches cells still red at this point
- * (our own fills above are already blue), so nothing this pass fills gets touched. The actual
- * red-to-black recolor happens separately, document-wide -- see recolorRemainingRedToBlack().
+ * (our own fills above are already blue), so nothing this pass fills gets touched. The cell
+ * stays red either way -- that's the template's own "still needs a number" signal, and this app
+ * never converts it to black (see fillObservations()'s own doc comment).
  */
 function resetPercentPlaceholders(documentXml: string, obsHeadingStart: number): string {
   const photosHeading = findHeadingParagraph(documentXml, "Heading1", "Photos", obsHeadingStart);
@@ -145,19 +147,6 @@ function resetPercentPlaceholders(documentXml: string, obsHeadingStart: number):
   );
 
   return before + region + after;
-}
-
-/**
- * Recolors every remaining instance of Brett's red "needs review" convention to black, across
- * the WHOLE document -- not just Observations. Adam's request: red is reserved for Brett's own
- * manual corrections when he reviews a generated report, so anything the template itself always
- * shipped in red (TOC entries, the Overall Assessment summary table, Inspection Details/TIL
- * tables, boilerplate notes, an unfilled Observations cell) needs to read as ordinary template
- * text -- black -- instead. Safe as a blanket replace because this app never writes FF0000
- * itself (only 0000FF, for real auto-filled values), so nothing generated gets touched.
- */
-export function recolorRemainingRedToBlack(documentXml: string): string {
-  return documentXml.replace(/FF0000/g, "000000");
 }
 
 /** Replaces a cell's paragraph content (from its first <w:p> to its last </w:p>) with a single

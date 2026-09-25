@@ -4,16 +4,6 @@ import { assembleReport } from "@/lib/docx/templateAssembler";
 import type { PhotosSection } from "@/lib/docx/photosSectionMap";
 import { getSession } from "@/lib/reviewSession";
 
-async function fileToBuffer(value: FormDataEntryValue | null): Promise<Buffer | undefined> {
-  if (!value || typeof value === "string") return undefined;
-  return Buffer.from(await value.arrayBuffer());
-}
-
-async function filesToBuffers(values: FormDataEntryValue[]): Promise<Buffer[]> {
-  const files = values.filter((v): v is File => typeof v !== "string");
-  return Promise.all(files.map(async (f) => Buffer.from(await f.arrayBuffer())));
-}
-
 export async function POST(request: NextRequest) {
   const form = await request.formData();
   const sessionId = form.get("sessionId");
@@ -41,15 +31,8 @@ export async function POST(request: NextRequest) {
       for (const section of excludedInput) excludedSections.add(section);
     }
 
-    const [operationalDataImage, dataPlateImages] = await Promise.all([
-      fileToBuffer(form.get("operationalDataPhoto")),
-      filesToBuffers(form.getAll("dataPlatePhoto")),
-    ]);
-
     const result = assembleReport(session.template, session.units, {
       overrides,
-      operationalDataImage,
-      dataPlateImages,
       excludedSections,
     });
     const buffer = await saveDocx(session.template);

@@ -187,89 +187,6 @@ footer.app-header > * {
   z-index: 1;
 }
 
-/* Drop zones themselves render in the white main-panel (like every other tab's content), so
-   they're styled dark-on-light rather than the light-on-dark the old standalone dark bar used. */
-.front-matter-dropzones {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-  margin-top: 14px;
-}
-
-.photo-dropzone-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 220px;
-  max-width: 320px;
-}
-
-.photo-dropzone-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #a4232b;
-}
-
-.photo-dropzone {
-  min-height: 90px;
-  border: 2px dashed #a4232b;
-  border-radius: 10px;
-  padding: 12px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  background: #fbeaea;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
-}
-
-.photo-dropzone:hover {
-  border-color: #7a1a20;
-  background: #f7e4e5;
-}
-
-.photo-dropzone.dragging {
-  border-color: #7a1a20;
-  background: #f0d2d4;
-}
-
-.photo-dropzone-empty {
-  font-size: 12px;
-  color: #6b4548;
-}
-
-.photo-preview-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  border: 1px solid #e3cfd0;
-  border-radius: 10px;
-  background: #ffffff;
-  padding: 10px;
-}
-
-.photo-dropzone-preview {
-  width: 100%;
-  max-height: 90px;
-  object-fit: cover;
-  border-radius: 6px;
-}
-
-.photo-dropzone-filename {
-  font-size: 11px;
-  color: #6b4548;
-  word-break: break-all;
-}
-
-.photo-dropzone-remove {
-  padding: 4px 12px;
-  font-size: 12px;
-  align-self: flex-start;
-}
-
 .app-body {
   display: flex;
   flex: 1;
@@ -772,6 +689,17 @@ button.generate-report:active:not(:disabled) {
 
 .modal-checkbox-row:hover {
   background: #fbeaea;
+}
+
+/* Same checklist markup, reused on the dark "Ready to generate" card (see ReadyToGenerateScreen)
+   -- its default text color and light hover fill are tuned for the white .modal-card popup and
+   are nearly invisible against .folder-picker-card's near-black background. */
+.folder-picker-card .modal-checkbox-row {
+  color: #ffffff;
+}
+
+.folder-picker-card .modal-checkbox-row:hover {
+  background: rgba(164, 35, 43, 0.35);
 }
 
 .modal-checkbox-row input {

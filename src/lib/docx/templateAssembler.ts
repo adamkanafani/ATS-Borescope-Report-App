@@ -6,8 +6,7 @@ import { detectTemplateFamily, resolveClassify, resolvePhotosSubsections, type T
 import { buildPhotoBlockXml } from "./photoBlockBuilder";
 import { findHeadingParagraph } from "./xmlTextUtils";
 import { aggregateObservations } from "./observationsAggregator";
-import { fillObservations, recolorRemainingRedToBlack } from "./observationsFiller";
-import { insertFrontMatterPhotos } from "./frontMatterPhotos";
+import { fillObservations } from "./observationsFiller";
 import { removeExcludedSections } from "./sectionExclusion";
 
 export interface AssembleResult {
@@ -17,8 +16,6 @@ export interface AssembleResult {
   bySection: Record<PhotosSection, number>;
   observationsFilled: string[];
   observationsSkipped: string[];
-  operationalDataInserted: boolean;
-  dataPlateInsertedCount: number;
 }
 
 export interface AssembleOptions {
@@ -26,11 +23,6 @@ export interface AssembleOptions {
    *  explicit `null` forces exclusion even if the classifier would've placed it. Lets the
    *  review UI rescue (or veto) units without touching the deterministic classifier itself. */
   overrides?: Map<number, PhotosSection | null>;
-  /** Manually-supplied photos for the Photos-section placeholders the raw MDI file never
-   *  contains (the borescope only photographs turbine components) -- see frontMatterPhotos.ts.
-   *  dataPlateImages maps to the template's two Data Plate slots in order. */
-  operationalDataImage?: Buffer;
-  dataPlateImages?: Buffer[];
   /** Photos subsections to leave out of the report entirely (not just left empty) -- both
    *  their Photos content and their Observations table, when one exists. Some ATS customers
    *  only pay for part of the inspection; see sectionExclusion.ts. */
@@ -138,17 +130,6 @@ export function assembleReport(template: LoadedDocx, units: RawPhotoUnit[], opti
     template.documentXml = removeExcludedSections(template.documentXml, excludedSections, photosSubsections, family.observationsHeadingBySection);
   }
 
-  const frontMatterResult = insertFrontMatterPhotos(template, {
-    operationalDataImage: options.operationalDataImage,
-    dataPlateImages: options.dataPlateImages,
-  });
-
-  // Whole-document pass, last: anything the template shipped in Brett's red "needs review"
-  // convention (TOC, Overall Assessment, Inspection Details/TIL tables, boilerplate notes, plus
-  // whatever fillObservations() didn't reach) reads as ordinary black template text instead --
-  // red stays reserved for Brett's own manual corrections when he reviews a generated report.
-  template.documentXml = recolorRemainingRedToBlack(template.documentXml);
-
   return {
     documentXml: template.documentXml,
     inserted: Object.values(bySection).reduce((sum, n) => sum + n, 0),
@@ -156,7 +137,5 @@ export function assembleReport(template: LoadedDocx, units: RawPhotoUnit[], opti
     bySection,
     observationsFilled: observationsResult.filled,
     observationsSkipped: observationsResult.skipped,
-    operationalDataInserted: frontMatterResult.operationalDataInserted,
-    dataPlateInsertedCount: frontMatterResult.dataPlateInsertedCount,
   };
 }

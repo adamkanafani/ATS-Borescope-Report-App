@@ -19,16 +19,8 @@ async function main() {
   console.log(`\nReading template: ${TEMPLATE_SAMPLE}`);
   const templateLoaded = await loadDocx(fs.readFileSync(TEMPLATE_SAMPLE));
 
-  const operationalDataImage = process.env.ATS_TEST_OPDATA ? fs.readFileSync(process.env.ATS_TEST_OPDATA) : undefined;
-  const dataPlateImages = [process.env.ATS_TEST_DATAPLATE, process.env.ATS_TEST_DATAPLATE2]
-    .filter((p): p is string => !!p)
-    .map((p) => fs.readFileSync(p));
-
-  const result = assembleReport(templateLoaded, units, { operationalDataImage, dataPlateImages });
+  const result = assembleReport(templateLoaded, units, {});
   console.log(`\nInserted ${result.inserted} of ${units.length} units.`);
-  console.log(
-    `Front-matter photos -- Operational Data inserted: ${result.operationalDataInserted}, Data Plate slots filled: ${result.dataPlateInsertedCount}/2`,
-  );
   console.log("By section:", result.bySection);
   console.log(`${result.unassigned.length} units unassigned:`);
   const unassignedComponents = new Set(result.unassigned.map((u) => u.component));

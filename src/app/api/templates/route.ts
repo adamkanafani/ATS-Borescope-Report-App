@@ -15,6 +15,19 @@ interface TemplateOption {
   path: string;
 }
 
+/** Legacy Frame 7 unit variants (Frame 7, 7C, 7E, 7EA) share the same base report structure --
+ *  grouped here so a raw file named for any one of them matches templates named for any other,
+ *  instead of an exact-token match hiding a 7E raw file's own 7EA templates. 7FA is deliberately
+ *  its own family (different Photos/Observations layout -- see templateFamilies.ts's
+ *  FRAME_BEARING_FAMILY), so it's not in this group. No "Frame 7"/"7C"/plain-"7E" template exists
+ *  in the library yet -- this just means one will be picked up correctly the day ATS adds it. */
+const UNIT_TYPE_ALIAS_GROUPS: string[][] = [["7EA", "7E", "7C", "FRAME 7"]];
+
+function unitAliasGroup(unit: string): string[] {
+  const upper = unit.toUpperCase();
+  return UNIT_TYPE_ALIAS_GROUPS.find((group) => group.includes(upper)) ?? [upper];
+}
+
 /** Curated list shown on the template-picker step, so the user doesn't have to browse folders
  *  and risk picking a finished sample report instead of a blank starter template. Only lists
  *  .docx files directly in the folder (no subfolders currently expected there).
@@ -49,7 +62,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ templates: fullList, fullList, unit: null, matchedCount: 0 });
     }
 
-    const unitMatches = fullList.filter((t) => t.name.split(/\s+/)[0].toLowerCase() === unit.toLowerCase());
+    const aliasGroup = unitAliasGroup(unit);
+    const unitMatches = fullList.filter((t) => aliasGroup.some((alias) => t.name.toUpperCase().startsWith(`${alias} `)));
 
     const automated: TemplateOption[] = [];
     for (const t of unitMatches) {

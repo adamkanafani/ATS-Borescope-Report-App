@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PhotosSection } from "@/lib/docx/photosSectionMap";
 
 interface Measurement {
@@ -77,7 +77,7 @@ export default function Home() {
   const [scan, setScan] = useState<ScanResponse | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
-  const [selectedSection, setSelectedSection] = useState<PhotosSection | "Unassigned" | "Manual Photos" | "Trash">("Compressor Section");
+  const [selectedSection, setSelectedSection] = useState<PhotosSection | "Unassigned" | "Trash">("Compressor Section");
   const [overrides, setOverrides] = useState<Record<number, PhotosSection | null>>({});
   // Trashing a unit never touches `overrides` -- it's tracked separately so recovering it just
   // means removing it from this set, and it goes right back to whatever section (classifier
@@ -85,8 +85,9 @@ export default function Home() {
   const [deletedIndices, setDeletedIndices] = useState<Set<number>>(new Set());
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
-  const [operationalDataFiles, setOperationalDataFiles] = useState<File[]>([]);
-  const [dataPlateFiles, setDataPlateFiles] = useState<File[]>([]);
+  // Whether the tech rep chose to open the full per-photo review screen instead of generating
+  // straight from the "ready to generate" step -- see ReadyToGenerateScreen/ReviewScreen below.
+  const [reviewing, setReviewing] = useState(false);
 
   async function runScan(raw: string, tmpl: string) {
     setScanning(true);
@@ -116,8 +117,7 @@ export default function Home() {
     setScanError(null);
     setOverrides({});
     setDeletedIndices(new Set());
-    setOperationalDataFiles([]);
-    setDataPlateFiles([]);
+    setReviewing(false);
     setSelectedSection("Compressor Section");
   }
 
@@ -136,8 +136,6 @@ export default function Home() {
       formData.set("sessionId", scan.sessionId);
       formData.set("overrides", JSON.stringify(overridesWithTrash));
       formData.set("excludedSections", JSON.stringify([...excludedSections]));
-      if (operationalDataFiles[0]) formData.set("operationalDataPhoto", operationalDataFiles[0]);
-      for (const file of dataPlateFiles) formData.append("dataPlatePhoto", file);
 
       const res = await fetch("/api/generate", { method: "POST", body: formData });
       if (!res.ok) {
@@ -211,6 +209,20 @@ export default function Home() {
     );
   }
 
+  if (!reviewing) {
+    return (
+      <ReadyToGenerateScreen
+        rawPath={rawPath}
+        scan={scan}
+        generating={generating}
+        generateError={generateError}
+        onGenerate={generateReport}
+        onReview={() => setReviewing(true)}
+        onChangeFiles={resetFiles}
+      />
+    );
+  }
+
   return (
     <ReviewScreen
       rawPath={rawPath}
@@ -231,10 +243,6 @@ export default function Home() {
       generating={generating}
       generateError={generateError}
       onGenerate={generateReport}
-      operationalDataFiles={operationalDataFiles}
-      dataPlateFiles={dataPlateFiles}
-      onOperationalDataFiles={setOperationalDataFiles}
-      onDataPlateFiles={setDataPlateFiles}
       onChangeFiles={resetFiles}
     />
   );
@@ -242,86 +250,6 @@ export default function Home() {
 
 function effectiveSection(unit: UnitSummary, overrides: Record<number, PhotosSection | null>): PhotosSection | null {
   return unit.index in overrides ? overrides[unit.index] : unit.section;
-}
-
-/** A drag-and-drop (or click-to-browse) slot for up to `maxFiles` front-matter photos, with a
- *  live preview per file. Reads files straight from the browser's native picker/drop event --
- *  no server-side path resolution needed, since the actual bytes go up with the generate
- *  request. Some inspectors take more than one shot of the same thing (e.g. two data plate
- *  photos), and the template has a real placeholder slot for each one -- maxFiles matches
- *  however many slots actually exist. */
-function PhotoDropZone({
-  label,
-  files,
-  onFilesChange,
-  maxFiles,
-}: {
-  label: string;
-  files: File[];
-  onFilesChange: (files: File[]) => void;
-  maxFiles: number;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const canAddMore = files.length < maxFiles;
-
-  function addFiles(incoming: FileList | null) {
-    if (!incoming) return;
-    const images = Array.from(incoming).filter((f) => f.type.startsWith("image/"));
-    if (images.length === 0) return;
-    onFilesChange([...files, ...images].slice(0, maxFiles));
-  }
-
-  return (
-    <div className="photo-dropzone-group">
-      <div className="photo-dropzone-label">
-        {label} ({files.length}/{maxFiles})
-      </div>
-      {files.map((file, i) => (
-        <PhotoPreviewCard key={`${file.name}-${i}`} file={file} onRemove={() => onFilesChange(files.filter((_, j) => j !== i))} />
-      ))}
-      {canAddMore && (
-        <div
-          className={`photo-dropzone ${isDragging ? "dragging" : ""}`}
-          onClick={() => inputRef.current?.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-            addFiles(e.dataTransfer.files);
-          }}
-        >
-          <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={(e) => addFiles(e.target.files)} />
-          <div className="photo-dropzone-empty">
-            Drag &amp; drop {files.length > 0 ? "another" : "an"} image here, or click to browse
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** One picked file's preview thumbnail + filename + remove button. */
-function PhotoPreviewCard({ file, onRemove }: { file: File; onRemove: () => void }) {
-  const previewUrl = useMemo(() => URL.createObjectURL(file), [file]);
-
-  useEffect(() => {
-    return () => URL.revokeObjectURL(previewUrl);
-  }, [previewUrl]);
-
-  return (
-    <div className="photo-preview-card">
-      <img src={previewUrl} alt={file.name} className="photo-dropzone-preview" />
-      <div className="photo-dropzone-filename">{file.name}</div>
-      <button type="button" className="secondary photo-dropzone-remove" onClick={onRemove}>
-        Remove
-      </button>
-    </div>
-  );
 }
 
 function ReviewScreen({
@@ -337,16 +265,12 @@ function ReviewScreen({
   generating,
   generateError,
   onGenerate,
-  operationalDataFiles,
-  dataPlateFiles,
-  onOperationalDataFiles,
-  onDataPlateFiles,
   onChangeFiles,
 }: {
   rawPath: string;
   scan: ScanResponse;
-  selectedSection: PhotosSection | "Unassigned" | "Manual Photos" | "Trash";
-  onSelectSection: (s: PhotosSection | "Unassigned" | "Manual Photos" | "Trash") => void;
+  selectedSection: PhotosSection | "Unassigned" | "Trash";
+  onSelectSection: (s: PhotosSection | "Unassigned" | "Trash") => void;
   overrides: Record<number, PhotosSection | null>;
   onOverride: (index: number, section: PhotosSection | null) => void;
   deletedIndices: Set<number>;
@@ -355,10 +279,6 @@ function ReviewScreen({
   generating: boolean;
   generateError: string | null;
   onGenerate: (excludedSections: Set<PhotosSection>) => void;
-  operationalDataFiles: File[];
-  dataPlateFiles: File[];
-  onOperationalDataFiles: (files: File[]) => void;
-  onDataPlateFiles: (files: File[]) => void;
   onChangeFiles: () => void;
 }) {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -393,15 +313,6 @@ function ReviewScreen({
       <div className="app-body">
         <nav className="sidebar">
           <div className="sidebar-scroll">
-            <button
-              className={`section-item ${selectedSection === "Manual Photos" ? "active" : ""}`}
-              onClick={() => onSelectSection("Manual Photos")}
-            >
-              <div className="title-row">
-                <span>Manual Insert</span>
-              </div>
-              <div className="confidence-tag">{operationalDataFiles.length + dataPlateFiles.length}/3 photos set</div>
-            </button>
             {scan.photosSubsections.map((name) => (
               <button
                 key={name}
@@ -443,38 +354,23 @@ function ReviewScreen({
           </div>
         </nav>
         <main className="main-panel">
-          {selectedSection === "Manual Photos" ? (
-            <>
-              <h2 style={{ marginBottom: 8 }}>Manual Insert</h2>
-              <p className="section-reason">
-                The borescope never takes these shots itself -- drag them in (or click to browse) if you have them.
-                Data Plate has two slots, since inspectors sometimes take a second one. Any slot left blank is
-                removed from the generated report instead of showing &quot;Insert Photo Here&quot;.
-              </p>
-              <div className="front-matter-dropzones">
-                <PhotoDropZone label="Operational Data Photo" files={operationalDataFiles} onFilesChange={onOperationalDataFiles} maxFiles={1} />
-                <PhotoDropZone label="Data Plate Photo" files={dataPlateFiles} onFilesChange={onDataPlateFiles} maxFiles={2} />
-              </div>
-            </>
+          <h2 style={{ marginBottom: 8 }}>{selectedSection}</h2>
+          {selectedSection === "Trash" ? (
+            <p className="section-reason">
+              Deleted photos land here instead of being removed outright -- they&apos;re left out of the
+              generated report either way, but you can still recover one back to wherever it was before.
+            </p>
+          ) : selectedSection === "Unassigned" && live.unassigned > 0 ? (
+            <p className="section-reason">
+              The classifier couldn&apos;t place these by component name. Pick a section for each one below, or
+              leave excluded to omit it from the generated report.
+            </p>
+          ) : null}
+          {visibleUnits.length === 0 ? (
+            <p>No photos here.</p>
           ) : (
-            <>
-              <h2 style={{ marginBottom: 8 }}>{selectedSection}</h2>
-              {selectedSection === "Trash" ? (
-                <p className="section-reason">
-                  Deleted photos land here instead of being removed outright -- they&apos;re left out of the
-                  generated report either way, but you can still recover one back to wherever it was before.
-                </p>
-              ) : selectedSection === "Unassigned" && live.unassigned > 0 ? (
-                <p className="section-reason">
-                  The classifier couldn&apos;t place these by component name. Pick a section for each one below, or
-                  leave excluded to omit it from the generated report.
-                </p>
-              ) : null}
-              {visibleUnits.length === 0 ? (
-                <p>No photos here.</p>
-              ) : (
-                <ul className="unit-list">
-                  {visibleUnits.map((unit) => (
+            <ul className="unit-list">
+              {visibleUnits.map((unit) => (
                     <li key={unit.index} className="unit-row">
                       {unit.hasImage ? (
                         <img
@@ -528,10 +424,8 @@ function ReviewScreen({
                         </button>
                       )}
                     </li>
-                  ))}
-                </ul>
-              )}
-            </>
+              ))}
+            </ul>
           )}
         </main>
       </div>
@@ -551,6 +445,81 @@ function ReviewScreen({
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** The fast path straight from "template picked" to "report downloaded" -- no per-photo review
+ *  required. Tech reps are already fast in Word and don't want to review every photo/section
+ *  inside the app first; the classifier already placed everything, so Generate here just needs
+ *  the inspection scope (which sections this report should even include -- e.g. "Compressor
+ *  Only" unchecks everything else) before handing off. "Review photos in detail first" is the
+ *  escape hatch to the full ReviewScreen (sidebar, reassignment, delete/trash/recover) for anyone
+ *  who wants it -- that screen is unchanged, just no longer mandatory. */
+function ReadyToGenerateScreen({
+  rawPath,
+  scan,
+  generating,
+  generateError,
+  onGenerate,
+  onReview,
+  onChangeFiles,
+}: {
+  rawPath: string;
+  scan: ScanResponse;
+  generating: boolean;
+  generateError: string | null;
+  onGenerate: (excludedSections: Set<PhotosSection>) => void;
+  onReview: () => void;
+  onChangeFiles: () => void;
+}) {
+  const [checked, setChecked] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(scan.photosSubsections.map((s) => [s, true])),
+  );
+
+  function toggle(section: PhotosSection) {
+    setChecked((prev) => ({ ...prev, [section]: !prev[section] }));
+  }
+
+  function handleGenerate() {
+    onGenerate(new Set(scan.photosSubsections.filter((s) => !checked[s])));
+  }
+
+  return (
+    <div className="folder-picker">
+      <div className="folder-picker-card">
+        <div className="app-logo">
+          <h1>Ready to generate</h1>
+        </div>
+        <p className="folder-picker-subtitle">{rawPath}</p>
+        <p className="folder-picker-subtitle">
+          Every photo has already been classified and placed. Uncheck a section below to leave it
+          (and its Observations table) out entirely -- for example, uncheck everything but
+          Compressor Section for a compressor-only inspection.
+        </p>
+        <div className="modal-checklist">
+          {scan.photosSubsections.map((section) => (
+            <label key={section} className="modal-checkbox-row">
+              <input type="checkbox" checked={checked[section] ?? true} onChange={() => toggle(section)} />
+              {section}
+            </label>
+          ))}
+        </div>
+        {generateError && <p className="folder-picker-error">{generateError}</p>}
+        <div className="modal-actions" style={{ justifyContent: "space-between" }}>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button className="secondary" onClick={onChangeFiles}>
+              Change Files
+            </button>
+            <button className="secondary" onClick={onReview}>
+              Review photos in detail first
+            </button>
+          </div>
+          <button className="generate-report" disabled={generating} onClick={handleGenerate}>
+            {generating ? "Generating..." : "Generate Report"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
