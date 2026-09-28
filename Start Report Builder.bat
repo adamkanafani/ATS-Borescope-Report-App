@@ -15,5 +15,5 @@ if not exist ".next" (
 )
 start "ATS Borescope Report Builder - Server (leave this open)" cmd /k "npm run start"
 timeout /t 5 /nobreak >nul
-start "" http://localhost:3000
+start "" http://localhost:3100
 exit
