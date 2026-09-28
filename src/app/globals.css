@@ -555,10 +555,12 @@ button.generate-report:active:not(:disabled) {
    dot-grid texture behind it reads through subtly rather than being covered by a white slab. */
 .folder-picker-card {
   background: #0d0d0d;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(224, 70, 77, 0.25);
   border-radius: 14px;
   padding: 24px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+  /* A soft red glow around the card, echoing the dot-grid gradient behind it, layered under the
+     original black drop shadow that gives it depth against the page. */
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45), 0 0 45px rgba(122, 26, 32, 0.3);
 }
 
 .folder-picker-error {
@@ -602,8 +604,14 @@ button.generate-report:active:not(:disabled) {
   border: none;
   padding: 14px 18px;
   margin-bottom: 3px;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.1);
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* A faint zebra tint so rows read as distinct entries in a long list, rather than one flat
+   black slab -- subtle enough to disappear once a row's own hover/active state takes over. */
+.folder-list button:nth-child(even) {
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .folder-list button:last-child {
