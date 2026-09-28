@@ -45,3 +45,7 @@ next-env.d.ts
 /reference/*.docx
 /reference/raw-mdi-samples/*.docx
 /reference/finished-reports/*
+
+# manually-uploaded templates (see src/lib/docx/uploadedTemplates.ts) -- private to this
+# machine, never meant to be committed or shared through the repo
+/uploaded-templates/

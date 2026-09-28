@@ -628,6 +628,16 @@ button.generate-report:active:not(:disabled) {
   background: rgba(0, 0, 0, 0.35);
 }
 
+/* Divides the curated template list from the tech rep's own uploaded ones underneath it. */
+.folder-list-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a8a8a8;
+  padding: 10px 18px 4px;
+}
+
 @keyframes folder-list-fade-in {
   from {
     opacity: 0;

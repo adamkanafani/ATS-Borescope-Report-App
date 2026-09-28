@@ -3,6 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { loadDocx } from "@/lib/docx/zip";
 import { detectTemplateFamily } from "@/lib/docx/templateFamilies";
+import { listUploadedTemplates } from "@/lib/docx/uploadedTemplates";
 
 /** ATS's shared library of blank cover-page templates -- one per unit/job type (35 and
  *  growing), maintained outside this project so new templates show up here without a deploy.
@@ -48,6 +49,11 @@ function unitAliasGroup(unit: string): string[] {
  *  client can offer an escape hatch back to the complete library when this heuristic is wrong. */
 export async function GET(request: NextRequest) {
   const unit = request.nextUrl.searchParams.get("unit");
+  // Manually-uploaded templates (see uploadedTemplates.ts) are always shown alongside the
+  // curated/full lists below, regardless of unit-type filtering -- there are usually only one or
+  // two of them, and they're the tech rep's own explicit choice, not something to hide behind a
+  // naming heuristic.
+  const uploaded = await listUploadedTemplates();
 
   try {
     const entries = await fs.readdir(TEMPLATES_DIR, { withFileTypes: true });
@@ -59,7 +65,7 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
 
     if (!unit) {
-      return NextResponse.json({ templates: fullList, fullList, unit: null, matchedCount: 0 });
+      return NextResponse.json({ templates: fullList, fullList, uploaded, unit: null, matchedCount: 0 });
     }
 
     const aliasGroup = unitAliasGroup(unit);
@@ -76,8 +82,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ templates: automated, fullList, unit, matchedCount: unitMatches.length });
+    return NextResponse.json({ templates: automated, fullList, uploaded, unit, matchedCount: unitMatches.length });
   } catch (err) {
-    return NextResponse.json({ templates: [], fullList: [], error: err instanceof Error ? err.message : "Failed to list templates" });
+    return NextResponse.json({ templates: [], fullList: [], uploaded, error: err instanceof Error ? err.message : "Failed to list templates" });
   }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PhotosSection } from "@/lib/docx/photosSectionMap";
 
 interface Measurement {
@@ -595,6 +595,7 @@ function deriveUnitTypeFromRawFilename(rawPath: string | null): string | null {
 interface TemplatesResponse {
   templates: TemplateOption[];
   fullList: TemplateOption[];
+  uploaded: TemplateOption[];
   unit: string | null;
   matchedCount: number;
   error?: string;
@@ -616,11 +617,10 @@ function TemplateStep({ rawPath, onChosen, onBack }: { rawPath: string | null; o
   // Same as Home's rawBrowseDir -- remembers where "Browse for a different file..." was left,
   // so toggling back to the curated list and back to browsing again resumes there.
   const [browseDir, setBrowseDir] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setResult(null);
-    setShowAll(false);
+  function refresh() {
     const qs = unitType ? `?unit=${encodeURIComponent(unitType)}` : "";
     fetch(`/api/templates${qs}`)
       .then((res) => res.json())
@@ -629,9 +629,40 @@ function TemplateStep({ rawPath, onChosen, onBack }: { rawPath: string | null; o
         if (json.error) setTemplatesError(json.error);
       })
       .catch((err) => setTemplatesError(err instanceof Error ? err.message : "Failed to load templates"));
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setResult(null);
+    setShowAll(false);
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unitType]);
 
   const templates = result ? (showAll || !unitType ? result.fullList : result.templates) : null;
+
+  // Manually uploads a template that isn't in ATS's shared library (a brand-new one, or a
+  // one-off a tech rep was handed directly) -- saved to disk so it's available again next time
+  // (see /api/templates/upload), then used immediately for this report too.
+  async function handleUpload(fileList: FileList | null) {
+    const file = fileList?.[0];
+    if (!file) return;
+    setUploading(true);
+    setTemplatesError(null);
+    try {
+      const formData = new FormData();
+      formData.set("file", file);
+      const res = await fetch("/api/templates/upload", { method: "POST", body: formData });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Upload failed");
+      onChosen(json.path);
+    } catch (err) {
+      setTemplatesError(err instanceof Error ? err.message : "Upload failed");
+      refresh();
+    } finally {
+      setUploading(false);
+    }
+  }
 
   if (browsing) {
     return (
@@ -690,8 +721,31 @@ function TemplateStep({ rawPath, onChosen, onBack }: { rawPath: string | null; o
                 📄 {t.name}
               </button>
             ))}
+            {result && result.uploaded.length > 0 && (
+              <>
+                <div className="folder-list-section-label">Your uploaded templates</div>
+                {result.uploaded.map((t) => (
+                  <button key={t.path} onClick={() => onChosen(t.path)}>
+                    📄 {t.name}
+                  </button>
+                ))}
+              </>
+            )}
             <button className="secondary" onClick={() => setBrowsing(true)}>
               Browse for a different file...
+            </button>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept=".docx"
+              hidden
+              onChange={(e) => {
+                handleUpload(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <button className="secondary" disabled={uploading} onClick={() => uploadInputRef.current?.click()}>
+              {uploading ? "Uploading..." : "Upload a new template..."}
             </button>
           </div>
         )}
