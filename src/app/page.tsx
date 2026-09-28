@@ -83,11 +83,24 @@ export default function Home() {
   // means removing it from this set, and it goes right back to whatever section (classifier
   // default or a prior manual reassignment) it already had.
   const [deletedIndices, setDeletedIndices] = useState<Set<number>>(new Set());
+  // Shared between ReadyToGenerateScreen and ReviewScreen's GenerateSectionsModal so scoping the
+  // report down on one screen (e.g. Compressor Only) isn't silently lost by detouring through
+  // the other before actually generating.
+  const [excludedSections, setExcludedSections] = useState<Set<PhotosSection>>(new Set());
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   // Whether the tech rep chose to open the full per-photo review screen instead of generating
   // straight from the "ready to generate" step -- see ReadyToGenerateScreen/ReviewScreen below.
   const [reviewing, setReviewing] = useState(false);
+
+  function toggleExcludedSection(section: PhotosSection) {
+    setExcludedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(section)) next.delete(section);
+      else next.add(section);
+      return next;
+    });
+  }
 
   async function runScan(raw: string, tmpl: string) {
     setScanning(true);
@@ -103,6 +116,7 @@ export default function Home() {
       setScan(data);
       setOverrides({});
       setDeletedIndices(new Set());
+      setExcludedSections(new Set());
     } catch (err) {
       setScanError(err instanceof Error ? err.message : "Scan failed");
     } finally {
@@ -117,27 +131,46 @@ export default function Home() {
     setScanError(null);
     setOverrides({});
     setDeletedIndices(new Set());
+    setExcludedSections(new Set());
     setReviewing(false);
     setSelectedSection("Compressor Section");
   }
 
-  async function generateReport(excludedSections: Set<PhotosSection>) {
-    if (!scan) return;
+  async function postGenerate(sessionId: string) {
+    // Trashed units are excluded the same way "Leave excluded" is (an explicit null override) --
+    // computed here rather than stored in `overrides` itself, so recovering a trashed unit
+    // before generating restores whatever section it actually had.
+    const overridesWithTrash: Record<number, PhotosSection | null> = { ...overrides };
+    for (const index of deletedIndices) overridesWithTrash[index] = null;
+
+    const formData = new FormData();
+    formData.set("sessionId", sessionId);
+    formData.set("overrides", JSON.stringify(overridesWithTrash));
+    formData.set("excludedSections", JSON.stringify([...excludedSections]));
+    return fetch("/api/generate", { method: "POST", body: formData });
+  }
+
+  async function generateReport() {
+    if (!scan || !rawPath || !templatePath) return;
     setGenerating(true);
     setGenerateError(null);
     try {
-      // Trashed units are excluded the same way "Leave excluded" is (an explicit null override)
-      // -- computed here rather than stored in `overrides` itself, so recovering a trashed unit
-      // before generating restores whatever section it actually had.
-      const overridesWithTrash: Record<number, PhotosSection | null> = { ...overrides };
-      for (const index of deletedIndices) overridesWithTrash[index] = null;
-
-      const formData = new FormData();
-      formData.set("sessionId", scan.sessionId);
-      formData.set("overrides", JSON.stringify(overridesWithTrash));
-      formData.set("excludedSections", JSON.stringify([...excludedSections]));
-
-      const res = await fetch("/api/generate", { method: "POST", body: formData });
+      let res = await postGenerate(scan.sessionId);
+      if (res.status === 410) {
+        // The server-side review session lives only in memory (see reviewSession.ts) and is
+        // gone if the local dev server restarted since scanning -- but the raw file and template
+        // are still the same files on disk, so silently rescan and retry once instead of forcing
+        // a trip back through the file pickers (which would also lose overrides/deletedIndices).
+        const rescan = await fetch("/api/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rawPath, templatePath }),
+        });
+        const rescanData = await rescan.json();
+        if (!rescan.ok) throw new Error(rescanData.error || "The review session expired and could not be recovered -- please rescan.");
+        setScan(rescanData);
+        res = await postGenerate(rescanData.sessionId);
+      }
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || "Generate failed");
@@ -214,6 +247,8 @@ export default function Home() {
       <ReadyToGenerateScreen
         rawPath={rawPath}
         scan={scan}
+        excludedSections={excludedSections}
+        onToggleSection={toggleExcludedSection}
         generating={generating}
         generateError={generateError}
         onGenerate={generateReport}
@@ -240,6 +275,8 @@ export default function Home() {
           return next;
         })
       }
+      excludedSections={excludedSections}
+      onToggleSection={toggleExcludedSection}
       generating={generating}
       generateError={generateError}
       onGenerate={generateReport}
@@ -262,6 +299,8 @@ function ReviewScreen({
   deletedIndices,
   onDelete,
   onRecover,
+  excludedSections,
+  onToggleSection,
   generating,
   generateError,
   onGenerate,
@@ -276,9 +315,11 @@ function ReviewScreen({
   deletedIndices: Set<number>;
   onDelete: (index: number) => void;
   onRecover: (index: number) => void;
+  excludedSections: Set<PhotosSection>;
+  onToggleSection: (section: PhotosSection) => void;
   generating: boolean;
   generateError: string | null;
-  onGenerate: (excludedSections: Set<PhotosSection>) => void;
+  onGenerate: () => void;
   onChangeFiles: () => void;
 }) {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -438,10 +479,12 @@ function ReviewScreen({
       {showGenerateModal && (
         <GenerateSectionsModal
           sections={scan.photosSubsections}
+          excludedSections={excludedSections}
+          onToggleSection={onToggleSection}
           onCancel={() => setShowGenerateModal(false)}
-          onConfirm={(excludedSections) => {
+          onConfirm={() => {
             setShowGenerateModal(false);
-            onGenerate(excludedSections);
+            onGenerate();
           }}
         />
       )}
@@ -459,6 +502,8 @@ function ReviewScreen({
 function ReadyToGenerateScreen({
   rawPath,
   scan,
+  excludedSections,
+  onToggleSection,
   generating,
   generateError,
   onGenerate,
@@ -467,24 +512,14 @@ function ReadyToGenerateScreen({
 }: {
   rawPath: string;
   scan: ScanResponse;
+  excludedSections: Set<PhotosSection>;
+  onToggleSection: (section: PhotosSection) => void;
   generating: boolean;
   generateError: string | null;
-  onGenerate: (excludedSections: Set<PhotosSection>) => void;
+  onGenerate: () => void;
   onReview: () => void;
   onChangeFiles: () => void;
 }) {
-  const [checked, setChecked] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(scan.photosSubsections.map((s) => [s, true])),
-  );
-
-  function toggle(section: PhotosSection) {
-    setChecked((prev) => ({ ...prev, [section]: !prev[section] }));
-  }
-
-  function handleGenerate() {
-    onGenerate(new Set(scan.photosSubsections.filter((s) => !checked[s])));
-  }
-
   return (
     <div className="folder-picker">
       <div className="folder-picker-card">
@@ -500,7 +535,7 @@ function ReadyToGenerateScreen({
         <div className="modal-checklist">
           {scan.photosSubsections.map((section) => (
             <label key={section} className="modal-checkbox-row">
-              <input type="checkbox" checked={checked[section] ?? true} onChange={() => toggle(section)} />
+              <input type="checkbox" checked={!excludedSections.has(section)} onChange={() => onToggleSection(section)} />
               {section}
             </label>
           ))}
@@ -515,7 +550,7 @@ function ReadyToGenerateScreen({
               Review photos in detail first
             </button>
           </div>
-          <button className="generate-report" disabled={generating} onClick={handleGenerate}>
+          <button className="generate-report" disabled={generating} onClick={onGenerate}>
             {generating ? "Generating..." : "Generate Report"}
           </button>
         </div>
@@ -526,26 +561,22 @@ function ReadyToGenerateScreen({
 
 /** Confirmation modal shown before generating -- some ATS customers only pay for part of the
  *  inspection, so unchecking a section here drops it (heading, photos, and its Observations
- *  table) from the generated report entirely rather than leaving it blank. */
+ *  table) from the generated report entirely rather than leaving it blank. Shares
+ *  `excludedSections` with ReadyToGenerateScreen (see Home()) so scoping the report down there
+ *  isn't lost by opening this modal instead. */
 function GenerateSectionsModal({
   sections,
+  excludedSections,
+  onToggleSection,
   onCancel,
   onConfirm,
 }: {
   sections: PhotosSection[];
+  excludedSections: Set<PhotosSection>;
+  onToggleSection: (section: PhotosSection) => void;
   onCancel: () => void;
-  onConfirm: (excludedSections: Set<PhotosSection>) => void;
+  onConfirm: () => void;
 }) {
-  const [checked, setChecked] = useState<Record<string, boolean>>(() => Object.fromEntries(sections.map((s) => [s, true])));
-
-  function toggle(section: PhotosSection) {
-    setChecked((prev) => ({ ...prev, [section]: !prev[section] }));
-  }
-
-  function handleConfirm() {
-    onConfirm(new Set(sections.filter((s) => !checked[s])));
-  }
-
   return (
     <div className="modal-overlay">
       <div className="modal-card">
@@ -557,7 +588,7 @@ function GenerateSectionsModal({
         <div className="modal-checklist">
           {sections.map((section) => (
             <label key={section} className="modal-checkbox-row">
-              <input type="checkbox" checked={checked[section] ?? true} onChange={() => toggle(section)} />
+              <input type="checkbox" checked={!excludedSections.has(section)} onChange={() => onToggleSection(section)} />
               {section}
             </label>
           ))}
@@ -566,7 +597,7 @@ function GenerateSectionsModal({
           <button className="secondary" onClick={onCancel}>
             Cancel
           </button>
-          <button className="generate-report" onClick={handleConfirm}>
+          <button className="generate-report" onClick={onConfirm}>
             Generate Report
           </button>
         </div>
