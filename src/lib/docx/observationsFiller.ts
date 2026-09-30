@@ -18,23 +18,18 @@ function normalizeTurbineGroupName(name: string): string {
   return name === "Honeycomb Shroud" ? "Shroud Blocks" : name;
 }
 
-/** A Percent-Inspected cell's placeholder value -- a numeric percent ("100%", "75%") or Brett's
- *  own "still needs a number" placeholder. resetPercentPlaceholders() rewrites any of these
- *  still red at that point to a blank "XX%", rather than leaving one of Brett's specific-looking
- *  example numbers in a generated report. */
-const PERCENT_PLACEHOLDER_PATTERN = /^\s*(\d+\s*%|Add Applicable\s*%)\s*$/i;
-
 /**
  * Fills the Compressor and Turbine Observations tables' Condition cells from `aggregation`
  * (see observationsAggregator.ts). Deliberately does not touch Combustion, Exhaust, or any
  * Percent-Inspected cell -- see the plan file for why those aren't reliable to auto-fill from
- * this raw data. Leaves every cell it doesn't have data for untouched, and colors filled text
- * blue (0000FF) -- every AI-generated value in the report is blue, the template's own original
- * text is black, and red marks a field the tech rep still needs to fill in or review themselves
- * (Brett's own existing convention, which predates this app and is left untouched everywhere
- * this app doesn't have real data to fill in). This only resets Percent-Inspected placeholders
- * to "XX%" so a generated report doesn't ship one of Brett's specific-looking example numbers --
- * the cell stays red either way.
+ * this raw data; Percent-Inspected cells keep whichever default value the template itself
+ * already shipped with (these vary per row -- not a single constant -- and a couple are literal
+ * "Add Applicable %" placeholder text rather than a number; both are left exactly as-is). Leaves
+ * every cell it doesn't have data for untouched, and colors filled text blue (0000FF) -- every
+ * AI-generated value in the report is blue, the template's own original text is black, and red
+ * marks a field the tech rep still needs to fill in or review themselves (Brett's own existing
+ * convention, which predates this app and is left untouched everywhere this app doesn't have
+ * real data to fill in).
  */
 export function fillObservations(documentXml: string, aggregation: ObservationsAggregation): FillObservationsResult {
   const xml = documentXml;
@@ -119,34 +114,7 @@ export function fillObservations(documentXml: string, aggregation: ObservationsA
     result = result.slice(0, start) + replacement + result.slice(end);
   }
 
-  result = resetPercentPlaceholders(result, obsHeading.paragraphStart);
-
   return { documentXml: result, filled, skipped };
-}
-
-/**
- * Resets a Percent-Inspected cell's specific-looking placeholder value ("100%", "75%", "Add
- * Applicable %") to a blank "XX%", within the Observations section only -- scoped there rather
- * than run over the whole document since "XX%" is specifically what a Percent-Inspected cell
- * should show, not a general-purpose substitution. Only touches cells still red at this point
- * (our own fills above are already blue), so nothing this pass fills gets touched. The cell
- * stays red either way -- that's the template's own "still needs a number" signal, and this app
- * never converts it to black (see fillObservations()'s own doc comment).
- */
-function resetPercentPlaceholders(documentXml: string, obsHeadingStart: number): string {
-  const photosHeading = findHeadingParagraph(documentXml, "Heading1", "Photos", obsHeadingStart);
-  const regionEnd = photosHeading ? photosHeading.paragraphStart : documentXml.length;
-
-  const before = documentXml.slice(0, obsHeadingStart);
-  let region = documentXml.slice(obsHeadingStart, regionEnd);
-  const after = documentXml.slice(regionEnd);
-
-  region = region.replace(
-    /(<w:r(?:\s[^>]*)?><w:rPr>(?:(?!<\/w:rPr>)[\s\S])*?<w:color w:val="FF0000"\/>(?:(?!<\/w:r>)[\s\S])*?<w:t[^>]*>)([^<]*)(<\/w:t>)/g,
-    (match, open, text, close) => (PERCENT_PLACEHOLDER_PATTERN.test(text) ? `${open}XX%${close}` : match),
-  );
-
-  return before + region + after;
 }
 
 /** Replaces a cell's paragraph content (from its first <w:p> to its last </w:p>) with a single

@@ -49,3 +49,6 @@ next-env.d.ts
 # manually-uploaded templates (see src/lib/docx/uploadedTemplates.ts) -- private to this
 # machine, never meant to be committed or shared through the repo
 /uploaded-templates/
+
+# generated cheat-sheet PDF -- a deliverable handed to tech reps directly, not app source
+/Borescope-App-Cheat-Sheet.pdf

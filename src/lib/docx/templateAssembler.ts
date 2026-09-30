@@ -4,7 +4,7 @@ import type { RawPhotoUnit } from "./rawMdiParser";
 import type { PhotosSection } from "./photosSectionMap";
 import { detectTemplateFamily, resolveClassify, resolvePhotosSubsections, type TemplateFamily } from "./templateFamilies";
 import { buildPhotoBlockXml } from "./photoBlockBuilder";
-import { findHeadingParagraph } from "./xmlTextUtils";
+import { findHeadingParagraph, findParagraphStart } from "./xmlTextUtils";
 import { aggregateObservations } from "./observationsAggregator";
 import { fillObservations } from "./observationsFiller";
 import { removeExcludedSections } from "./sectionExclusion";
@@ -32,6 +32,30 @@ export interface AssembleOptions {
    *  to pass this explicitly if they want to skip that detection (e.g. already resolved it at
    *  scan time and want generate time to fail the same way rather than re-guess). */
   family?: TemplateFamily;
+}
+
+/** Photos subsections the borescope doesn't reliably photograph itself -- the blank template
+ *  ships its own example photo blocks there (real embedded images, not "Insert Photo Here" text)
+ *  for the tech rep to swap manually in Word. Treated the same way as Operational Data/Data
+ *  Plate used to be: left completely untouched when the raw MDI file has no real photos for it
+ *  (so that example content -- and the blank space it occupies -- survives), but still replaced
+ *  with the real ones when the raw MDI file does have some. */
+const MANUAL_WHEN_EMPTY_SECTIONS = new Set<PhotosSection>(["Inlet Section"]);
+
+/** Finds where the dedicated page-break paragraph right before `beforePos` begins, if there is
+ *  one. ATS's templates precede every Photos subsection heading with its own paragraph
+ *  containing a literal `<w:br w:type="page"/>` (sometimes separated from the heading by a
+ *  harmless `<w:bookmarkEnd/>`) -- splicing a subsection's content must stop before that
+ *  paragraph, not at the heading itself, or the *next* heading silently loses its own page break
+ *  (everything between the two headings, page-break paragraph included, gets overwritten).
+ *  Returns null when no such break is found nearby, so a template that doesn't use this
+ *  convention doesn't get one invented for it. */
+function findPrecedingPageBreakStart(xml: string, beforePos: number): number | null {
+  const LOOKBACK = 2000;
+  const breakTag = '<w:br w:type="page"/>';
+  const breakIdx = xml.lastIndexOf(breakTag, beforePos);
+  if (breakIdx === -1 || breakIdx < beforePos - LOOKBACK) return null;
+  return findParagraphStart(xml, breakIdx + 1);
 }
 
 /**
@@ -97,9 +121,22 @@ export function assembleReport(template: LoadedDocx, units: RawPhotoUnit[], opti
     const paragraphEnd = xml.indexOf("</w:p>", paragraphStart);
     if (paragraphEnd === -1) throw new Error(`Malformed heading paragraph for "${name}".`);
     const contentStart = paragraphEnd + "</w:p>".length;
-    const contentEnd = i + 1 < headings.length ? headings[i + 1].paragraphStart : bodyEnd;
+    const nextBoundary = i + 1 < headings.length ? headings[i + 1].paragraphStart : bodyEnd;
+    // Stop the splice before the next heading's own page-break paragraph, not at the heading
+    // itself, so that paragraph (and the next section's page break) survives (see
+    // findPrecedingPageBreakStart's own doc comment).
+    const contentEnd =
+      i + 1 < headings.length ? findPrecedingPageBreakStart(xml, nextBoundary) ?? nextBoundary : nextBoundary;
 
-    const unitsForSection = excludedSections.has(name) ? [] : grouped.get(name) ?? [];
+    const isExcluded = excludedSections.has(name);
+    const unitsForSection = isExcluded ? [] : grouped.get(name) ?? [];
+
+    if (!isExcluded && unitsForSection.length === 0 && MANUAL_WHEN_EMPTY_SECTIONS.has(name)) {
+      // No real photos for a manual-insert section -- leave the template's own example content
+      // (and the blank space it occupies) exactly as it is, rather than wiping it to nothing.
+      continue;
+    }
+
     const tables = unitsForSection.map((unit) => {
       const photoRelId = addImageRelationship(template, unit.imageBytes as Buffer, "jpg");
       return buildPhotoBlockXml(unit, { photoRelId, uniqueId: uniqueIdCounter++ });
