@@ -18,6 +18,31 @@ function normalizeTurbineGroupName(name: string): string {
   return name === "Honeycomb Shroud" ? "Shroud Blocks" : name;
 }
 
+/** A few Percent-Inspected cells in the pristine template carry this literal placeholder text
+ *  instead of a number (Brett's own "still needs a number" marker) -- replaced with a plain "?"
+ *  since that reads more clearly as "unknown" in a generated report than the template's own
+ *  wordier placeholder. Every other Percent-Inspected cell (a real number) is left untouched --
+ *  see fillObservations()'s own doc comment for why those aren't touched at all. */
+const ADD_APPLICABLE_PATTERN = /^\s*Add Applicable\s*%\s*$/i;
+
+/** Scoped to the Observations section only, same reasoning as the old resetPercentPlaceholders --
+ *  "?" is specifically what this one placeholder should become, not a general substitution. */
+function replaceAddApplicablePlaceholder(documentXml: string, obsHeadingStart: number): string {
+  const photosHeading = findHeadingParagraph(documentXml, "Heading1", "Photos", obsHeadingStart);
+  const regionEnd = photosHeading ? photosHeading.paragraphStart : documentXml.length;
+
+  const before = documentXml.slice(0, obsHeadingStart);
+  let region = documentXml.slice(obsHeadingStart, regionEnd);
+  const after = documentXml.slice(regionEnd);
+
+  region = region.replace(
+    /(<w:t[^>]*>)([^<]*)(<\/w:t>)/g,
+    (match, open, text, close) => (ADD_APPLICABLE_PATTERN.test(text) ? `${open}?${close}` : match),
+  );
+
+  return before + region + after;
+}
+
 /**
  * Fills the Compressor and Turbine Observations tables' Condition cells from `aggregation`
  * (see observationsAggregator.ts). Deliberately does not touch Combustion, Exhaust, or any
@@ -113,6 +138,8 @@ export function fillObservations(documentXml: string, aggregation: ObservationsA
   for (const { start, end, replacement } of edits) {
     result = result.slice(0, start) + replacement + result.slice(end);
   }
+
+  result = replaceAddApplicablePlaceholder(result, obsHeading.paragraphStart);
 
   return { documentXml: result, filled, skipped };
 }
