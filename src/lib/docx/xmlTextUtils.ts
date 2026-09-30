@@ -94,3 +94,21 @@ export function findCellsInRange(xml: string, start: number, end: number): { sta
   }
   return cells;
 }
+
+/** Finds where the dedicated page-break paragraph right before `beforePos` begins, if there is
+ *  one. ATS's templates precede every Photos subsection heading with its own paragraph
+ *  containing a literal `<w:br w:type="page"/>` (sometimes separated from the heading by a
+ *  harmless `<w:bookmarkEnd/>`) -- deleting or splicing over a region that ends exactly at such
+ *  a heading must stop before that paragraph instead, or the heading silently loses its own page
+ *  break (everything between it and whatever precedes it, page-break paragraph included, gets
+ *  overwritten/removed along with the rest of the region). Used by both templateAssembler.ts
+ *  (splicing a subsection's Photos content) and sectionExclusion.ts (removing a whole excluded
+ *  section). Returns null when no such break is found nearby, so a template that doesn't use
+ *  this convention doesn't get one invented for it. */
+export function findPrecedingPageBreakStart(xml: string, beforePos: number): number | null {
+  const LOOKBACK = 2000;
+  const breakTag = '<w:br w:type="page"/>';
+  const breakIdx = xml.lastIndexOf(breakTag, beforePos);
+  if (breakIdx === -1 || breakIdx < beforePos - LOOKBACK) return null;
+  return findParagraphStart(xml, breakIdx + 1);
+}

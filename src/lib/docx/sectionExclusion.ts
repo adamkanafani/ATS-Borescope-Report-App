@@ -1,4 +1,4 @@
-import { findHeadingParagraph } from "./xmlTextUtils";
+import { findHeadingParagraph, findPrecedingPageBreakStart } from "./xmlTextUtils";
 import type { PhotosSection } from "./photosSectionMap";
 
 /**
@@ -69,9 +69,17 @@ export function removeExcludedSections(
 
 /** Locates every H2 heading named in `headingTextBySection` within [h1Start, h1End), in
  *  document order, and pushes a removal range for each excluded section: its own heading
- *  paragraph through the start of the next H2 found (or h1End for the last one). Two sections
- *  that happen to share the same heading text (not currently the case for any family) would
- *  collapse to one entry here, which is intentional -- there's only one heading to remove. */
+ *  paragraph through the start of the next H2 found (or h1End for the last one) -- adjusted at
+ *  both ends so the removal neither deletes nor orphans a page break:
+ *   - the END stops short of whatever dedicated page-break paragraph precedes that boundary, so
+ *     removing this section doesn't also delete the page break the *next* section (or whatever
+ *     follows h1End) relies on;
+ *   - the START is pulled back to swallow this section's *own* preceding page-break paragraph
+ *     too, so removing it doesn't leave that paragraph behind as an orphaned extra blank page
+ *     between whatever precedes it and the next (preserved) page break.
+ *  See findPrecedingPageBreakStart. Two sections that happen to share the same heading text (not
+ *  currently the case for any family) would collapse to one entry here, which is intentional --
+ *  there's only one heading to remove. */
 function collectH2Removals(
   xml: string,
   h1Start: number,
@@ -94,7 +102,9 @@ function collectH2Removals(
   const found = [...byHeadingText.values()].sort((a, b) => a.paragraphStart - b.paragraphStart);
   for (let i = 0; i < found.length; i++) {
     if (!found[i].excluded) continue;
-    const end = i + 1 < found.length ? found[i + 1].paragraphStart : h1End;
-    removals.push({ start: found[i].paragraphStart, end });
+    const boundary = i + 1 < found.length ? found[i + 1].paragraphStart : h1End;
+    const start = findPrecedingPageBreakStart(xml, found[i].paragraphStart) ?? found[i].paragraphStart;
+    const end = findPrecedingPageBreakStart(xml, boundary) ?? boundary;
+    removals.push({ start, end });
   }
 }

@@ -4,7 +4,7 @@ import type { RawPhotoUnit } from "./rawMdiParser";
 import type { PhotosSection } from "./photosSectionMap";
 import { detectTemplateFamily, resolveClassify, resolvePhotosSubsections, type TemplateFamily } from "./templateFamilies";
 import { buildPhotoBlockXml } from "./photoBlockBuilder";
-import { findHeadingParagraph, findParagraphStart } from "./xmlTextUtils";
+import { findHeadingParagraph, findPrecedingPageBreakStart } from "./xmlTextUtils";
 import { aggregateObservations } from "./observationsAggregator";
 import { fillObservations } from "./observationsFiller";
 import { removeExcludedSections } from "./sectionExclusion";
@@ -41,22 +41,6 @@ export interface AssembleOptions {
  *  (so that example content -- and the blank space it occupies -- survives), but still replaced
  *  with the real ones when the raw MDI file does have some. */
 const MANUAL_WHEN_EMPTY_SECTIONS = new Set<PhotosSection>(["Inlet Section"]);
-
-/** Finds where the dedicated page-break paragraph right before `beforePos` begins, if there is
- *  one. ATS's templates precede every Photos subsection heading with its own paragraph
- *  containing a literal `<w:br w:type="page"/>` (sometimes separated from the heading by a
- *  harmless `<w:bookmarkEnd/>`) -- splicing a subsection's content must stop before that
- *  paragraph, not at the heading itself, or the *next* heading silently loses its own page break
- *  (everything between the two headings, page-break paragraph included, gets overwritten).
- *  Returns null when no such break is found nearby, so a template that doesn't use this
- *  convention doesn't get one invented for it. */
-function findPrecedingPageBreakStart(xml: string, beforePos: number): number | null {
-  const LOOKBACK = 2000;
-  const breakTag = '<w:br w:type="page"/>';
-  const breakIdx = xml.lastIndexOf(breakTag, beforePos);
-  if (breakIdx === -1 || breakIdx < beforePos - LOOKBACK) return null;
-  return findParagraphStart(xml, breakIdx + 1);
-}
 
 /**
  * Inserts every classifiable raw photo unit into the template's "Photos" section, replacing
